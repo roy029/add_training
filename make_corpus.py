@@ -508,36 +508,6 @@ def main():
         load_from_cache_file=not data_args.overwrite_cache,
     )
 
-    # # Enable tensorboard only on the master node
-    # has_tensorboard = is_tensorboard_available()
-    # if has_tensorboard and jax.process_index() == 0:
-    #     try:
-    #         from flax.metrics.tensorboard import SummaryWriter
-
-    #         summary_writer = SummaryWriter(log_dir=Path(training_args.output_dir))
-    #     except ImportError as ie:
-    #         has_tensorboard = False
-    #         logger.warning(
-    #             f"Unable to display metrics through TensorBoard because some package are not installed: {ie}"
-    #         )
-    # else:
-    #     logger.warning(
-    #         "Unable to display metrics through TensorBoard because the package is not installed: "
-    #         "Please run pip install tensorboard to enable."
-    #     )
-
-    # # Initialize our training
-    # rng = jax.random.PRNGKey(training_args.seed)
-    # dropout_rngs = jax.random.split(rng, jax.local_device_count())
-
-    # if model_args.model_name_or_path:
-    #     model = FlaxT5ForConditionalGeneration.from_pretrained(
-    #         model_args.model_name_or_path, config=config, seed=training_args.seed, dtype=getattr(jnp, model_args.dtype)
-    #     )
-    # else:
-    #     config.vocab_size = len(tokenizer)
-    #     model = FlaxT5ForConditionalGeneration(config, seed=training_args.seed, dtype=getattr(jnp, model_args.dtype))
-
     # Data collator
     # This one will take care of randomly masking the tokens.
     data_collator = FlaxDataCollatorForT5MLM(
@@ -569,7 +539,7 @@ def main():
         # train_metrics = []
 
         # # Create sampling rng
-        rng, input_rng = jax.random.split(rng)
+    rng, input_rng = jax.random.split(rng)
 
         # # Generate an epoch by shuffling sampling indices from the train dataset
         # num_train_samples = len(tokenized_datasets["train"])
@@ -591,8 +561,8 @@ def main():
         samples = [tokenized_datasets["validation"][int(idx)] for idx in batch_idx]
         model_inputs = data_collator(samples)
         
-        # Model forward
-        model_inputs = shard(model_inputs.data)
+        # # Model forward
+        # model_inputs = shard(model_inputs.data)
 
 
 # if __name__ == "__main__":

@@ -307,6 +307,18 @@ class FlaxDataCollatorForT5MLM:
 
         return is_noise[:orig_length]
 
+# Argment
+# process model arguments. Check Info - Notes for more details
+model_args = ModelArguments(model_name_or_path='google/mt5-small', 
+                            model_type='mt5',
+                            tokenizer_name='google/mt5-small',
+                            )
+
+# process data arguments. Check Info - Notes for more details
+data_args = DataTrainingArguments(train_file='/content/train_maji_test.txt',
+                     validation_file='/content/eval_maji_test.txt',
+                     )
+
 # いろいろdef
 def generate_batch_splits(samples_idx: jnp.ndarray, batch_size: int) -> jnp.ndarray:
     num_samples = len(samples_idx)

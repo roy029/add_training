@@ -2,6 +2,8 @@
 import random
 import glob
 import csv
+import time
+from tqdm import tqdm
 
 #ABCIに入れる必要があるライブラリ
 # !pip -q install transformers
@@ -36,7 +38,7 @@ def masking(input_ids, masked):
     prev_index = index
   return tokenizer.decode([ids for ids in input_ids if ids != None])
 
-def mask(s, ratio=0.5):
+def mask(s, ratio=0.15):
   inputs = tokenizer(s, return_tensors="pt")   # input のtensor 列
   input_ids = inputs["input_ids"].squeeze().tolist()[:-1] # </s> を除いたinputs のlist
   n_tokens = len(input_ids)   # 字句数
@@ -66,7 +68,7 @@ def mask(s, ratio=0.5):
 #         else:
 #             print("ファイルの形を確認する")
 
-def read_txt(input_file, output_file='out.tsv'):
+def read_txt(input_file, output_file='aoj_row_out.tsv'):
     with open(input_file) as f:
         with open(output_file, mode='w') as fo:
             tsv_writer = csv.writer(fo, delimiter='\t')
@@ -85,11 +87,9 @@ def only_read_txt(input_file, output_file='out.tsv'):
       print('===============================')
 
 #入力用フォルダを作ったので、余裕があれば保存先フォルダを作りたい
-import time
-from tqdm import tqdm
-input_files = glob.glob("/Users/t_kajiura/Git/add_training/input_file/*_sample.txt")
+input_files = glob.glob("/Users/t_kajiura/Git/add_training/input_file/aoj*.txt")
 for input_file in tqdm(input_files):
     print(input_file)
-    read_txt(input_file, output_file='out.tsv')
+    read_txt(input_file, output_file='aoj_row_out.tsv')
     # slack.notify(text="ファイルの実行が一つ終わったよ") # 指定したチャンネルに送信
-    print("ファイルの実行が一つ終わったよ")
+

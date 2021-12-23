@@ -14,7 +14,7 @@ from tqdm import tqdm
 # !pip install slackweb
 
 # from slackweb import Slack
-# slack = Slack("https://hooks.slack.com/services/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")
+# slack = Slack("slackのwebhook")
 
 
 # from transformers import MT5ForConditionalGeneration, MT5Tokenizer

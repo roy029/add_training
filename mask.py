@@ -40,16 +40,19 @@ def masking(input_ids, masked):
 
 def mask(s, ratio=0.15):
   inputs = tokenizer(s, return_tensors="pt")   # input のtensor 列
-  input_ids = inputs["input_ids"].squeeze().tolist()[:-1] # </s> を除いたinputs のlist
-  n_tokens = len(input_ids)   # 字句数
-  n = max(int((n_tokens / 2) * ratio), 1)
+  #ここで、中身がstrかintだったらエラーが出る。.squeeze()のおかげで言葉になる。
+  if tokenizer.decode(inputs["input_ids"].squeeze()) == ("</s>" or "#</s>"):
+        return "空行です"
+  else:
+    input_ids = inputs["input_ids"].squeeze().tolist()[:-1] # </s> を除いたinputs のlist
+    n_tokens = len(input_ids)   # 字句数
+    n = max(int((n_tokens / 2) * ratio), 1)
 
   input_masked = sorted(random.sample(list(range(0, n_tokens)), n))
   output_masked = list(set(list(range(0, n_tokens))) - set(input_masked))
 
   source = masking(input_ids[:], input_masked)
   target = masking(input_ids[:], output_masked)
-
   return source, target
 
 #入力ファイルの種類によって読み込み方法を変える必要アリ...?かもしれない
@@ -80,11 +83,14 @@ def read_txt(input_file, output_file='aoj_row_out.tsv'):
 def only_read_txt(input_file, output_file='out.tsv'):
   with open(input_file) as f:
     for line in f.readlines():
-      src, tgt = mask(line.strip())
-      print('org:', line.strip())
-      print('src:', src)
-      print('tgt:', tgt)
-      print('===============================')
+        if mask(line.strip()) == "空行です":
+            pass
+        else:
+            src, tgt = mask(line.strip())
+            print('org:', line.strip())
+            print('src:', src)
+            print('tgt:', tgt)
+            print('===============================')
 
 #入力用フォルダを作ったので、余裕があれば保存先フォルダを作りたい
 input_files = glob.glob("/Users/t_kajiura/Git/add_training/input_file/aoj*.txt")

@@ -1,0 +1,1417 @@
+get_ipython().run_line_magic('matplotlib', 'inline')
+import io
+import numpy as np
+from torch import nn
+import torch.utils.model_zoo as model_zoo
+import torch.onnx
+import torch.nn as nn
+import torch.nn.init as init
+class SuperResolutionNet(nn.Module):
+    def __init__(self, upscale_factor, inplace=False):
+        super(SuperResolutionNet, self).__init__()
+        self.relu = nn.ReLU(inplace=inplace)
+        self.conv1 = nn.Conv2d(1, 64, (5, 5), (1, 1), (2, 2))
+        self.conv2 = nn.Conv2d(64, 64, (3, 3), (1, 1), (1, 1))
+        self.conv3 = nn.Conv2d(64, 32, (3, 3), (1, 1), (1, 1))
+        self.conv4 = nn.Conv2d(32, upscale_factor ** 2, (3, 3), (1, 1), (1, 1))
+        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
+        self._initialize_weights()
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.pixel_shuffle(self.conv4(x))
+        return x
+    def _initialize_weights(self):
+        init.orthogonal_(self.conv1.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv2.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv3.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv4.weight)
+torch_model = SuperResolutionNet(upscale_factor=3)
+model_url = 'https://s3.amazonaws.com/pytorch/test_data/export/superres_epoch100-44c6958e.pth'
+map_location = lambda storage, loc: storage
+if torch.cuda.is_available():
+    map_location = None
+torch_model.load_state_dict(model_zoo.load_url(model_url, map_location=map_location))
+torch_model.eval()
+x = torch.randn(batch_size, 1, 224, 224, requires_grad=True)
+torch_out = torch_model(x)
+                                'output' : {0 : 'batch_size'}})
+get_ipython().system('pip install onnx onnxruntime')
+import onnx
+onnx_model = onnx.load("super_resolution.onnx")
+onnx.checker.check_model(onnx_model)
+import onnxruntime
+ort_session = onnxruntime.InferenceSession("super_resolution.onnx")
+def to_numpy(tensor):
+    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
+ort_outs = ort_session.run(None, ort_inputs)
+np.testing.assert_allclose(to_numpy(torch_out), ort_outs[0], rtol=1e-03, atol=1e-05)
+print("Exported model has been tested with ONNXRuntime, and the result looks good!")
+print("----------")
+print(to_numpy(torch_out))
+print("----------")
+print(ort_outs[0])
+from google.colab import files
+uploaded = files.upload()
+from PIL import Image
+import matplotlib.pyplot as plt
+get_ipython().run_line_magic('matplotlib', 'inline')
+img = Image.open("cat_224x224.jpg")
+plt.imshow(img)
+plt.show()
+from PIL import Image
+import torchvision.transforms as transforms
+img  =  Image.open("cat_224x224.jpg")
+resize = transforms.Resize([224, 224])
+img = resize(img)
+img_ycbcr = img.convert('YCbCr')
+img_y, img_cb, img_cr = img_ycbcr.split()
+to_tensor = transforms.ToTensor()
+img_y = to_tensor(img_y)
+img_y.unsqueeze_(0)
+img_y.shape
+ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(img_y)}
+ort_outs = ort_session.run(None, ort_inputs)
+img_out_y = ort_outs[0]
+img_out_y = Image.fromarray(np.uint8((img_out_y[0] * 255.0).clip(0, 255)[0]), mode='L')
+final_img = Image.merge(
+    "YCbCr", [
+        img_out_y,
+        img_cb.resize(img_out_y.size, Image.BICUBIC),
+        img_cr.resize(img_out_y.size, Image.BICUBIC),
+    ]).convert("RGB")
+plt.imshow(final_img)
+plt.show()
+from google.colab import files
+final_img.save("cat_superres_with_ort.jpg")
+files.download('cat_superres_with_ort.jpg')
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().system('pip install Flask==1.0.3')
+import torchvision
+print(torchvision.__version__)
+get_ipython().system('pip install flask-ngrok')
+from flask import Flask
+app = Flask(__name__)
+@app.route('/')
+def hello():
+    return 'Hello World!'
+from flask import Flask
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+@app.route('/')
+def hello():
+  return 'Hello World!'
+if __name__ == '__main__':
+  app.run()
+@app.route('/predict', methods=['POST'])
+def predict():
+    return 'Hello World!'
+from flask import Flask, jsonify
+app = Flask(__name__)
+@app.route('/predict', methods=['POST'])
+def predict():
+    return jsonify({'class_id': 'IMAGE_NET_XXX', 'class_name': 'Cat'})
+from flask import Flask, jsonify
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+@app.route('/predict', methods=['GET'])
+def predict():
+    return jsonify({'class_id': 'IMAGE_NET_XXX', 'class_name': 'Cat'})
+if __name__ == '__main__':
+  app.run()
+import io
+import torchvision.transforms as transforms
+from PIL import Image
+def transform_image(image_bytes):
+    my_transforms = transforms.Compose([transforms.Resize(255),
+                                        transforms.CenterCrop(224),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(
+                                            [0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])])
+    image = Image.open(io.BytesIO(image_bytes))
+    return my_transforms(image).unsqueeze(0)
+with open("../_static/img/sample_file.jpeg", 'rb') as f:
+    image_bytes = f.read()
+    tensor = transform_image(image_bytes=image_bytes)
+    print(tensor)
+from google.colab import files
+uploaded = files.upload()
+import cv2
+from google.colab.patches import cv2_imshow
+img  = cv2.imread("bobby.jpg")
+cv2_imshow(img)
+with open("bobby.jpg", 'rb') as f:
+    image_bytes = f.read()
+    tensor = transform_image(image_bytes=image_bytes)
+    print(tensor)
+from torchvision import models
+model = models.densenet121(pretrained=True)
+model.eval()
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    return y_hat
+import json
+imagenet_class_index = json.load(open('../_static/imagenet_class_index.json'))
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+uploaded = files.upload()
+import json
+imagenet_class_index = json.load(open('imagenet_class_index.json'))
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+with open("../_static/img/sample_file.jpeg", 'rb') as f:
+    image_bytes = f.read()
+    print(get_prediction(image_bytes=image_bytes))
+['n02124075', 'Egyptian_cat']
+with open("bobby.jpg", 'rb') as f:
+    image_bytes = f.read()
+    print(get_prediction(image_bytes=image_bytes))
+import io
+import json
+from torchvision import models
+import torchvision.transforms as transforms
+from PIL import Image
+from flask import Flask, jsonify, request
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+imagenet_class_index = json.load(open('imagenet_class_index.json'))
+model = models.densenet121(pretrained=True)
+model.eval()
+def transform_image(image_bytes):
+    my_transforms = transforms.Compose([transforms.Resize(255),
+                                        transforms.CenterCrop(224),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(
+                                            [0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])])
+    image = Image.open(io.BytesIO(image_bytes))
+    return my_transforms(image).unsqueeze(0)
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+@app.route('/predict', methods=['POST'])
+def predict():
+    if request.method == 'POST':
+        file = request.files['file']
+        img_bytes = file.read()
+        class_id, class_name = get_prediction(image_bytes=img_bytes)
+        return jsonify({'class_id': class_id, 'class_name': class_name})
+if __name__ == '__main__':
+    app.run()
+get_ipython().run_line_magic('matplotlib', 'inline')
+print(torch.__version__)
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+    def forward(self, x, h):
+        new_h = torch.tanh(x + h)
+        return new_h, new_h
+my_cell = MyCell()
+x = torch.rand(3, 4)
+h = torch.rand(3, 4)
+print(my_cell(x, h))
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.linear(x) + h)
+        return new_h, new_h
+my_cell = MyCell()
+print(my_cell)
+print(my_cell(x, h))
+class MyDecisionGate(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return x
+        else:
+            return -x
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.dg = MyDecisionGate()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.dg(self.linear(x)) + h)
+        return new_h, new_h
+my_cell = MyCell()
+print(my_cell)
+print(my_cell(x, h))
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.linear(x) + h)
+        return new_h, new_h
+my_cell = MyCell()
+x, h = torch.rand(3, 4), torch.rand(3, 4)
+traced_cell = torch.jit.trace(my_cell, (x, h))
+print(traced_cell)
+traced_cell(x, h)
+print(traced_cell.graph)
+print(traced_cell.code)
+print(my_cell(x, h))
+print(traced_cell(x, h))
+class MyDecisionGate(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return x
+        else:
+            return -x
+class MyCell(torch.nn.Module):
+    def __init__(self, dg):
+        super(MyCell, self).__init__()
+        self.dg = dg
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.dg(self.linear(x)) + h)
+        return new_h, new_h
+my_cell = MyCell(MyDecisionGate())
+traced_cell = torch.jit.trace(my_cell, (x, h))
+print(traced_cell.code)
+scripted_gate = torch.jit.script(MyDecisionGate())
+my_cell = MyCell(scripted_gate)
+traced_cell = torch.jit.script(my_cell)
+print(traced_cell.code)
+print(scripted_gate.code)
+x, h = torch.rand(3, 4), torch.rand(3, 4)
+traced_cell(x, h)
+class MyRNNLoop(torch.nn.Module):
+    def __init__(self):
+        super(MyRNNLoop, self).__init__()
+        self.cell = torch.jit.trace(MyCell(scripted_gate), (x, h))
+    def forward(self, xs):
+        h, y = torch.zeros(3, 4), torch.zeros(3, 4)
+        for i in range(xs.size(0)):
+            y, h = self.cell(xs[i], h)
+        return y, h
+rnn_loop = torch.jit.script(MyRNNLoop())
+print(rnn_loop.code)
+class WrapRNN(torch.nn.Module):
+    def __init__(self):
+        super(WrapRNN, self).__init__()
+        self.loop = torch.jit.script(MyRNNLoop())
+    def forward(self, xs):
+        y, h = self.loop(xs)
+        return torch.relu(y)
+traced = torch.jit.trace(WrapRNN(), (torch.rand(10, 3, 4)))
+print(traced.code)
+traced.save('wrapped_rnn.zip')
+loaded = torch.jit.load('wrapped_rnn.zip')
+print(loaded)
+print(loaded.code)
+get_ipython().run_line_magic('matplotlib', 'inline')
+import torch
+import torchvision
+model = torchvision.models.resnet18()
+example = torch.rand(1, 3, 224, 224)
+traced_script_module = torch.jit.trace(model, example)
+output = traced_script_module(torch.ones(1, 3, 224, 224))
+output[0, :5]
+import torch
+class MyModule(torch.nn.Module):
+    def __init__(self, N, M):
+        super(MyModule, self).__init__()
+        self.weight = torch.nn.Parameter(torch.rand(N, M))
+    def forward(self, input):
+        if input.sum() > 0:
+          output = self.weight.mv(input)
+        else:
+          output = self.weight + input
+        return output
+class MyModule(torch.nn.Module):
+    def __init__(self, N, M):
+        super(MyModule, self).__init__()
+        self.weight = torch.nn.Parameter(torch.rand(N, M))
+    def forward(self, input):
+        if input.sum() > 0:
+          output = self.weight.mv(input)
+        else:
+          output = self.weight + input
+        return output
+my_module = MyModule(10,20)
+sm = torch.jit.script(my_module)
+traced_script_module.save("traced_resnet_model.pt")
+get_ipython().system('ls')get_ipython().run_line_magic('matplotlib', 'inline')
+import io
+import numpy as np
+from torch import nn
+import torch.utils.model_zoo as model_zoo
+import torch.onnx
+import torch.nn as nn
+import torch.nn.init as init
+class SuperResolutionNet(nn.Module):
+    def __init__(self, upscale_factor, inplace=False):
+        super(SuperResolutionNet, self).__init__()
+        self.relu = nn.ReLU(inplace=inplace)
+        self.conv1 = nn.Conv2d(1, 64, (5, 5), (1, 1), (2, 2))
+        self.conv2 = nn.Conv2d(64, 64, (3, 3), (1, 1), (1, 1))
+        self.conv3 = nn.Conv2d(64, 32, (3, 3), (1, 1), (1, 1))
+        self.conv4 = nn.Conv2d(32, upscale_factor ** 2, (3, 3), (1, 1), (1, 1))
+        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
+        self._initialize_weights()
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.pixel_shuffle(self.conv4(x))
+        return x
+    def _initialize_weights(self):
+        init.orthogonal_(self.conv1.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv2.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv3.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv4.weight)
+torch_model = SuperResolutionNet(upscale_factor=3)
+model_url = 'https://s3.amazonaws.com/pytorch/test_data/export/superres_epoch100-44c6958e.pth'
+map_location = lambda storage, loc: storage
+if torch.cuda.is_available():
+    map_location = None
+torch_model.load_state_dict(model_zoo.load_url(model_url, map_location=map_location))
+torch_model.eval()
+x = torch.randn(batch_size, 1, 224, 224, requires_grad=True)
+torch_out = torch_model(x)
+                                'output' : {0 : 'batch_size'}})
+get_ipython().system('pip install onnx onnxruntime')
+import onnx
+onnx_model = onnx.load("super_resolution.onnx")
+onnx.checker.check_model(onnx_model)
+import onnxruntime
+ort_session = onnxruntime.InferenceSession("super_resolution.onnx")
+def to_numpy(tensor):
+    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
+ort_outs = ort_session.run(None, ort_inputs)
+np.testing.assert_allclose(to_numpy(torch_out), ort_outs[0], rtol=1e-03, atol=1e-05)
+print("Exported model has been tested with ONNXRuntime, and the result looks good!")
+print("----------")
+print(to_numpy(torch_out))
+print("----------")
+print(ort_outs[0])
+from google.colab import files
+uploaded = files.upload()
+from PIL import Image
+import matplotlib.pyplot as plt
+get_ipython().run_line_magic('matplotlib', 'inline')
+img = Image.open("cat_224x224.jpg")
+plt.imshow(img)
+plt.show()
+from PIL import Image
+import torchvision.transforms as transforms
+img  =  Image.open("cat_224x224.jpg")
+resize = transforms.Resize([224, 224])
+img = resize(img)
+img_ycbcr = img.convert('YCbCr')
+img_y, img_cb, img_cr = img_ycbcr.split()
+to_tensor = transforms.ToTensor()
+img_y = to_tensor(img_y)
+img_y.unsqueeze_(0)
+img_y.shape
+ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(img_y)}
+ort_outs = ort_session.run(None, ort_inputs)
+img_out_y = ort_outs[0]
+img_out_y = Image.fromarray(np.uint8((img_out_y[0] * 255.0).clip(0, 255)[0]), mode='L')
+final_img = Image.merge(
+    "YCbCr", [
+        img_out_y,
+        img_cb.resize(img_out_y.size, Image.BICUBIC),
+        img_cr.resize(img_out_y.size, Image.BICUBIC),
+    ]).convert("RGB")
+plt.imshow(final_img)
+plt.show()
+from google.colab import files
+final_img.save("cat_superres_with_ort.jpg")
+files.download('cat_superres_with_ort.jpg')
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().system('pip install Flask==1.0.3')
+import torchvision
+print(torchvision.__version__)
+get_ipython().system('pip install flask-ngrok')
+from flask import Flask
+app = Flask(__name__)
+@app.route('/')
+def hello():
+    return 'Hello World!'
+from flask import Flask
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+@app.route('/')
+def hello():
+  return 'Hello World!'
+if __name__ == '__main__':
+  app.run()
+@app.route('/predict', methods=['POST'])
+def predict():
+    return 'Hello World!'
+from flask import Flask, jsonify
+app = Flask(__name__)
+@app.route('/predict', methods=['POST'])
+def predict():
+    return jsonify({'class_id': 'IMAGE_NET_XXX', 'class_name': 'Cat'})
+from flask import Flask, jsonify
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+@app.route('/predict', methods=['GET'])
+def predict():
+    return jsonify({'class_id': 'IMAGE_NET_XXX', 'class_name': 'Cat'})
+if __name__ == '__main__':
+  app.run()
+import io
+import torchvision.transforms as transforms
+from PIL import Image
+def transform_image(image_bytes):
+    my_transforms = transforms.Compose([transforms.Resize(255),
+                                        transforms.CenterCrop(224),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(
+                                            [0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])])
+    image = Image.open(io.BytesIO(image_bytes))
+    return my_transforms(image).unsqueeze(0)
+with open("../_static/img/sample_file.jpeg", 'rb') as f:
+    image_bytes = f.read()
+    tensor = transform_image(image_bytes=image_bytes)
+    print(tensor)
+from google.colab import files
+uploaded = files.upload()
+import cv2
+from google.colab.patches import cv2_imshow
+img  = cv2.imread("bobby.jpg")
+cv2_imshow(img)
+with open("bobby.jpg", 'rb') as f:
+    image_bytes = f.read()
+    tensor = transform_image(image_bytes=image_bytes)
+    print(tensor)
+from torchvision import models
+model = models.densenet121(pretrained=True)
+model.eval()
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    return y_hat
+import json
+imagenet_class_index = json.load(open('../_static/imagenet_class_index.json'))
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+uploaded = files.upload()
+import json
+imagenet_class_index = json.load(open('imagenet_class_index.json'))
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+with open("../_static/img/sample_file.jpeg", 'rb') as f:
+    image_bytes = f.read()
+    print(get_prediction(image_bytes=image_bytes))
+['n02124075', 'Egyptian_cat']
+with open("bobby.jpg", 'rb') as f:
+    image_bytes = f.read()
+    print(get_prediction(image_bytes=image_bytes))
+import io
+import json
+from torchvision import models
+import torchvision.transforms as transforms
+from PIL import Image
+from flask import Flask, jsonify, request
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+imagenet_class_index = json.load(open('imagenet_class_index.json'))
+model = models.densenet121(pretrained=True)
+model.eval()
+def transform_image(image_bytes):
+    my_transforms = transforms.Compose([transforms.Resize(255),
+                                        transforms.CenterCrop(224),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(
+                                            [0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])])
+    image = Image.open(io.BytesIO(image_bytes))
+    return my_transforms(image).unsqueeze(0)
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+@app.route('/predict', methods=['POST'])
+def predict():
+    if request.method == 'POST':
+        file = request.files['file']
+        img_bytes = file.read()
+        class_id, class_name = get_prediction(image_bytes=img_bytes)
+        return jsonify({'class_id': class_id, 'class_name': class_name})
+if __name__ == '__main__':
+    app.run()
+get_ipython().run_line_magic('matplotlib', 'inline')
+print(torch.__version__)
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+    def forward(self, x, h):
+        new_h = torch.tanh(x + h)
+        return new_h, new_h
+my_cell = MyCell()
+x = torch.rand(3, 4)
+h = torch.rand(3, 4)
+print(my_cell(x, h))
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.linear(x) + h)
+        return new_h, new_h
+my_cell = MyCell()
+print(my_cell)
+print(my_cell(x, h))
+class MyDecisionGate(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return x
+        else:
+            return -x
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.dg = MyDecisionGate()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.dg(self.linear(x)) + h)
+        return new_h, new_h
+my_cell = MyCell()
+print(my_cell)
+print(my_cell(x, h))
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.linear(x) + h)
+        return new_h, new_h
+my_cell = MyCell()
+x, h = torch.rand(3, 4), torch.rand(3, 4)
+traced_cell = torch.jit.trace(my_cell, (x, h))
+print(traced_cell)
+traced_cell(x, h)
+print(traced_cell.graph)
+print(traced_cell.code)
+print(my_cell(x, h))
+print(traced_cell(x, h))
+class MyDecisionGate(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return x
+        else:
+            return -x
+class MyCell(torch.nn.Module):
+    def __init__(self, dg):
+        super(MyCell, self).__init__()
+        self.dg = dg
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.dg(self.linear(x)) + h)
+        return new_h, new_h
+my_cell = MyCell(MyDecisionGate())
+traced_cell = torch.jit.trace(my_cell, (x, h))
+print(traced_cell.code)
+scripted_gate = torch.jit.script(MyDecisionGate())
+my_cell = MyCell(scripted_gate)
+traced_cell = torch.jit.script(my_cell)
+print(traced_cell.code)
+print(scripted_gate.code)
+x, h = torch.rand(3, 4), torch.rand(3, 4)
+traced_cell(x, h)
+class MyRNNLoop(torch.nn.Module):
+    def __init__(self):
+        super(MyRNNLoop, self).__init__()
+        self.cell = torch.jit.trace(MyCell(scripted_gate), (x, h))
+    def forward(self, xs):
+        h, y = torch.zeros(3, 4), torch.zeros(3, 4)
+        for i in range(xs.size(0)):
+            y, h = self.cell(xs[i], h)
+        return y, h
+rnn_loop = torch.jit.script(MyRNNLoop())
+print(rnn_loop.code)
+class WrapRNN(torch.nn.Module):
+    def __init__(self):
+        super(WrapRNN, self).__init__()
+        self.loop = torch.jit.script(MyRNNLoop())
+    def forward(self, xs):
+        y, h = self.loop(xs)
+        return torch.relu(y)
+traced = torch.jit.trace(WrapRNN(), (torch.rand(10, 3, 4)))
+print(traced.code)
+traced.save('wrapped_rnn.zip')
+loaded = torch.jit.load('wrapped_rnn.zip')
+print(loaded)
+print(loaded.code)
+get_ipython().run_line_magic('matplotlib', 'inline')
+import torch
+import torchvision
+model = torchvision.models.resnet18()
+example = torch.rand(1, 3, 224, 224)
+traced_script_module = torch.jit.trace(model, example)
+output = traced_script_module(torch.ones(1, 3, 224, 224))
+output[0, :5]
+import torch
+class MyModule(torch.nn.Module):
+    def __init__(self, N, M):
+        super(MyModule, self).__init__()
+        self.weight = torch.nn.Parameter(torch.rand(N, M))
+    def forward(self, input):
+        if input.sum() > 0:
+          output = self.weight.mv(input)
+        else:
+          output = self.weight + input
+        return output
+class MyModule(torch.nn.Module):
+    def __init__(self, N, M):
+        super(MyModule, self).__init__()
+        self.weight = torch.nn.Parameter(torch.rand(N, M))
+    def forward(self, input):
+        if input.sum() > 0:
+          output = self.weight.mv(input)
+        else:
+          output = self.weight + input
+        return output
+my_module = MyModule(10,20)
+sm = torch.jit.script(my_module)
+traced_script_module.save("traced_resnet_model.pt")
+get_ipython().system('ls')get_ipython().run_line_magic('matplotlib', 'inline')
+import io
+import numpy as np
+from torch import nn
+import torch.utils.model_zoo as model_zoo
+import torch.onnx
+import torch.nn as nn
+import torch.nn.init as init
+class SuperResolutionNet(nn.Module):
+    def __init__(self, upscale_factor, inplace=False):
+        super(SuperResolutionNet, self).__init__()
+        self.relu = nn.ReLU(inplace=inplace)
+        self.conv1 = nn.Conv2d(1, 64, (5, 5), (1, 1), (2, 2))
+        self.conv2 = nn.Conv2d(64, 64, (3, 3), (1, 1), (1, 1))
+        self.conv3 = nn.Conv2d(64, 32, (3, 3), (1, 1), (1, 1))
+        self.conv4 = nn.Conv2d(32, upscale_factor ** 2, (3, 3), (1, 1), (1, 1))
+        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
+        self._initialize_weights()
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.pixel_shuffle(self.conv4(x))
+        return x
+    def _initialize_weights(self):
+        init.orthogonal_(self.conv1.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv2.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv3.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv4.weight)
+torch_model = SuperResolutionNet(upscale_factor=3)
+model_url = 'https://s3.amazonaws.com/pytorch/test_data/export/superres_epoch100-44c6958e.pth'
+map_location = lambda storage, loc: storage
+if torch.cuda.is_available():
+    map_location = None
+torch_model.load_state_dict(model_zoo.load_url(model_url, map_location=map_location))
+torch_model.eval()
+x = torch.randn(batch_size, 1, 224, 224, requires_grad=True)
+torch_out = torch_model(x)
+                                'output' : {0 : 'batch_size'}})
+get_ipython().system('pip install onnx onnxruntime')
+import onnx
+onnx_model = onnx.load("super_resolution.onnx")
+onnx.checker.check_model(onnx_model)
+import onnxruntime
+ort_session = onnxruntime.InferenceSession("super_resolution.onnx")
+def to_numpy(tensor):
+    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
+ort_outs = ort_session.run(None, ort_inputs)
+np.testing.assert_allclose(to_numpy(torch_out), ort_outs[0], rtol=1e-03, atol=1e-05)
+print("Exported model has been tested with ONNXRuntime, and the result looks good!")
+print("----------")
+print(to_numpy(torch_out))
+print("----------")
+print(ort_outs[0])
+from google.colab import files
+uploaded = files.upload()
+from PIL import Image
+import matplotlib.pyplot as plt
+get_ipython().run_line_magic('matplotlib', 'inline')
+img = Image.open("cat_224x224.jpg")
+plt.imshow(img)
+plt.show()
+from PIL import Image
+import torchvision.transforms as transforms
+img  =  Image.open("cat_224x224.jpg")
+resize = transforms.Resize([224, 224])
+img = resize(img)
+img_ycbcr = img.convert('YCbCr')
+img_y, img_cb, img_cr = img_ycbcr.split()
+to_tensor = transforms.ToTensor()
+img_y = to_tensor(img_y)
+img_y.unsqueeze_(0)
+img_y.shape
+ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(img_y)}
+ort_outs = ort_session.run(None, ort_inputs)
+img_out_y = ort_outs[0]
+img_out_y = Image.fromarray(np.uint8((img_out_y[0] * 255.0).clip(0, 255)[0]), mode='L')
+final_img = Image.merge(
+    "YCbCr", [
+        img_out_y,
+        img_cb.resize(img_out_y.size, Image.BICUBIC),
+        img_cr.resize(img_out_y.size, Image.BICUBIC),
+    ]).convert("RGB")
+plt.imshow(final_img)
+plt.show()
+from google.colab import files
+final_img.save("cat_superres_with_ort.jpg")
+files.download('cat_superres_with_ort.jpg')
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().system('pip install Flask==1.0.3')
+import torchvision
+print(torchvision.__version__)
+get_ipython().system('pip install flask-ngrok')
+from flask import Flask
+app = Flask(__name__)
+@app.route('/')
+def hello():
+    return 'Hello World!'
+from flask import Flask
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+@app.route('/')
+def hello():
+  return 'Hello World!'
+if __name__ == '__main__':
+  app.run()
+@app.route('/predict', methods=['POST'])
+def predict():
+    return 'Hello World!'
+from flask import Flask, jsonify
+app = Flask(__name__)
+@app.route('/predict', methods=['POST'])
+def predict():
+    return jsonify({'class_id': 'IMAGE_NET_XXX', 'class_name': 'Cat'})
+from flask import Flask, jsonify
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+@app.route('/predict', methods=['GET'])
+def predict():
+    return jsonify({'class_id': 'IMAGE_NET_XXX', 'class_name': 'Cat'})
+if __name__ == '__main__':
+  app.run()
+import io
+import torchvision.transforms as transforms
+from PIL import Image
+def transform_image(image_bytes):
+    my_transforms = transforms.Compose([transforms.Resize(255),
+                                        transforms.CenterCrop(224),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(
+                                            [0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])])
+    image = Image.open(io.BytesIO(image_bytes))
+    return my_transforms(image).unsqueeze(0)
+with open("../_static/img/sample_file.jpeg", 'rb') as f:
+    image_bytes = f.read()
+    tensor = transform_image(image_bytes=image_bytes)
+    print(tensor)
+from google.colab import files
+uploaded = files.upload()
+import cv2
+from google.colab.patches import cv2_imshow
+img  = cv2.imread("bobby.jpg")
+cv2_imshow(img)
+with open("bobby.jpg", 'rb') as f:
+    image_bytes = f.read()
+    tensor = transform_image(image_bytes=image_bytes)
+    print(tensor)
+from torchvision import models
+model = models.densenet121(pretrained=True)
+model.eval()
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    return y_hat
+import json
+imagenet_class_index = json.load(open('../_static/imagenet_class_index.json'))
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+uploaded = files.upload()
+import json
+imagenet_class_index = json.load(open('imagenet_class_index.json'))
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+with open("../_static/img/sample_file.jpeg", 'rb') as f:
+    image_bytes = f.read()
+    print(get_prediction(image_bytes=image_bytes))
+['n02124075', 'Egyptian_cat']
+with open("bobby.jpg", 'rb') as f:
+    image_bytes = f.read()
+    print(get_prediction(image_bytes=image_bytes))
+import io
+import json
+from torchvision import models
+import torchvision.transforms as transforms
+from PIL import Image
+from flask import Flask, jsonify, request
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+imagenet_class_index = json.load(open('imagenet_class_index.json'))
+model = models.densenet121(pretrained=True)
+model.eval()
+def transform_image(image_bytes):
+    my_transforms = transforms.Compose([transforms.Resize(255),
+                                        transforms.CenterCrop(224),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(
+                                            [0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])])
+    image = Image.open(io.BytesIO(image_bytes))
+    return my_transforms(image).unsqueeze(0)
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+@app.route('/predict', methods=['POST'])
+def predict():
+    if request.method == 'POST':
+        file = request.files['file']
+        img_bytes = file.read()
+        class_id, class_name = get_prediction(image_bytes=img_bytes)
+        return jsonify({'class_id': class_id, 'class_name': class_name})
+if __name__ == '__main__':
+    app.run()
+get_ipython().run_line_magic('matplotlib', 'inline')
+print(torch.__version__)
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+    def forward(self, x, h):
+        new_h = torch.tanh(x + h)
+        return new_h, new_h
+my_cell = MyCell()
+x = torch.rand(3, 4)
+h = torch.rand(3, 4)
+print(my_cell(x, h))
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.linear(x) + h)
+        return new_h, new_h
+my_cell = MyCell()
+print(my_cell)
+print(my_cell(x, h))
+class MyDecisionGate(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return x
+        else:
+            return -x
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.dg = MyDecisionGate()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.dg(self.linear(x)) + h)
+        return new_h, new_h
+my_cell = MyCell()
+print(my_cell)
+print(my_cell(x, h))
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.linear(x) + h)
+        return new_h, new_h
+my_cell = MyCell()
+x, h = torch.rand(3, 4), torch.rand(3, 4)
+traced_cell = torch.jit.trace(my_cell, (x, h))
+print(traced_cell)
+traced_cell(x, h)
+print(traced_cell.graph)
+print(traced_cell.code)
+print(my_cell(x, h))
+print(traced_cell(x, h))
+class MyDecisionGate(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return x
+        else:
+            return -x
+class MyCell(torch.nn.Module):
+    def __init__(self, dg):
+        super(MyCell, self).__init__()
+        self.dg = dg
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.dg(self.linear(x)) + h)
+        return new_h, new_h
+my_cell = MyCell(MyDecisionGate())
+traced_cell = torch.jit.trace(my_cell, (x, h))
+print(traced_cell.code)
+scripted_gate = torch.jit.script(MyDecisionGate())
+my_cell = MyCell(scripted_gate)
+traced_cell = torch.jit.script(my_cell)
+print(traced_cell.code)
+print(scripted_gate.code)
+x, h = torch.rand(3, 4), torch.rand(3, 4)
+traced_cell(x, h)
+class MyRNNLoop(torch.nn.Module):
+    def __init__(self):
+        super(MyRNNLoop, self).__init__()
+        self.cell = torch.jit.trace(MyCell(scripted_gate), (x, h))
+    def forward(self, xs):
+        h, y = torch.zeros(3, 4), torch.zeros(3, 4)
+        for i in range(xs.size(0)):
+            y, h = self.cell(xs[i], h)
+        return y, h
+rnn_loop = torch.jit.script(MyRNNLoop())
+print(rnn_loop.code)
+class WrapRNN(torch.nn.Module):
+    def __init__(self):
+        super(WrapRNN, self).__init__()
+        self.loop = torch.jit.script(MyRNNLoop())
+    def forward(self, xs):
+        y, h = self.loop(xs)
+        return torch.relu(y)
+traced = torch.jit.trace(WrapRNN(), (torch.rand(10, 3, 4)))
+print(traced.code)
+traced.save('wrapped_rnn.zip')
+loaded = torch.jit.load('wrapped_rnn.zip')
+print(loaded)
+print(loaded.code)
+get_ipython().run_line_magic('matplotlib', 'inline')
+import torch
+import torchvision
+model = torchvision.models.resnet18()
+example = torch.rand(1, 3, 224, 224)
+traced_script_module = torch.jit.trace(model, example)
+output = traced_script_module(torch.ones(1, 3, 224, 224))
+output[0, :5]
+import torch
+class MyModule(torch.nn.Module):
+    def __init__(self, N, M):
+        super(MyModule, self).__init__()
+        self.weight = torch.nn.Parameter(torch.rand(N, M))
+    def forward(self, input):
+        if input.sum() > 0:
+          output = self.weight.mv(input)
+        else:
+          output = self.weight + input
+        return output
+class MyModule(torch.nn.Module):
+    def __init__(self, N, M):
+        super(MyModule, self).__init__()
+        self.weight = torch.nn.Parameter(torch.rand(N, M))
+    def forward(self, input):
+        if input.sum() > 0:
+          output = self.weight.mv(input)
+        else:
+          output = self.weight + input
+        return output
+my_module = MyModule(10,20)
+sm = torch.jit.script(my_module)
+traced_script_module.save("traced_resnet_model.pt")
+get_ipython().system('ls')get_ipython().run_line_magic('matplotlib', 'inline')
+import io
+import numpy as np
+from torch import nn
+import torch.utils.model_zoo as model_zoo
+import torch.onnx
+import torch.nn as nn
+import torch.nn.init as init
+class SuperResolutionNet(nn.Module):
+    def __init__(self, upscale_factor, inplace=False):
+        super(SuperResolutionNet, self).__init__()
+        self.relu = nn.ReLU(inplace=inplace)
+        self.conv1 = nn.Conv2d(1, 64, (5, 5), (1, 1), (2, 2))
+        self.conv2 = nn.Conv2d(64, 64, (3, 3), (1, 1), (1, 1))
+        self.conv3 = nn.Conv2d(64, 32, (3, 3), (1, 1), (1, 1))
+        self.conv4 = nn.Conv2d(32, upscale_factor ** 2, (3, 3), (1, 1), (1, 1))
+        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
+        self._initialize_weights()
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.pixel_shuffle(self.conv4(x))
+        return x
+    def _initialize_weights(self):
+        init.orthogonal_(self.conv1.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv2.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv3.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv4.weight)
+torch_model = SuperResolutionNet(upscale_factor=3)
+model_url = 'https://s3.amazonaws.com/pytorch/test_data/export/superres_epoch100-44c6958e.pth'
+map_location = lambda storage, loc: storage
+if torch.cuda.is_available():
+    map_location = None
+torch_model.load_state_dict(model_zoo.load_url(model_url, map_location=map_location))
+torch_model.eval()
+x = torch.randn(batch_size, 1, 224, 224, requires_grad=True)
+torch_out = torch_model(x)
+                                'output' : {0 : 'batch_size'}})
+get_ipython().system('pip install onnx onnxruntime')
+import onnx
+onnx_model = onnx.load("super_resolution.onnx")
+onnx.checker.check_model(onnx_model)
+import onnxruntime
+ort_session = onnxruntime.InferenceSession("super_resolution.onnx")
+def to_numpy(tensor):
+    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
+ort_outs = ort_session.run(None, ort_inputs)
+np.testing.assert_allclose(to_numpy(torch_out), ort_outs[0], rtol=1e-03, atol=1e-05)
+print("Exported model has been tested with ONNXRuntime, and the result looks good!")
+print("----------")
+print(to_numpy(torch_out))
+print("----------")
+print(ort_outs[0])
+from google.colab import files
+uploaded = files.upload()
+from PIL import Image
+import matplotlib.pyplot as plt
+get_ipython().run_line_magic('matplotlib', 'inline')
+img = Image.open("cat_224x224.jpg")
+plt.imshow(img)
+plt.show()
+from PIL import Image
+import torchvision.transforms as transforms
+img  =  Image.open("cat_224x224.jpg")
+resize = transforms.Resize([224, 224])
+img = resize(img)
+img_ycbcr = img.convert('YCbCr')
+img_y, img_cb, img_cr = img_ycbcr.split()
+to_tensor = transforms.ToTensor()
+img_y = to_tensor(img_y)
+img_y.unsqueeze_(0)
+img_y.shape
+ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(img_y)}
+ort_outs = ort_session.run(None, ort_inputs)
+img_out_y = ort_outs[0]
+img_out_y = Image.fromarray(np.uint8((img_out_y[0] * 255.0).clip(0, 255)[0]), mode='L')
+final_img = Image.merge(
+    "YCbCr", [
+        img_out_y,
+        img_cb.resize(img_out_y.size, Image.BICUBIC),
+        img_cr.resize(img_out_y.size, Image.BICUBIC),
+    ]).convert("RGB")
+plt.imshow(final_img)
+plt.show()
+from google.colab import files
+final_img.save("cat_superres_with_ort.jpg")
+files.download('cat_superres_with_ort.jpg')
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().system('pip install Flask==1.0.3')
+import torchvision
+print(torchvision.__version__)
+get_ipython().system('pip install flask-ngrok')
+from flask import Flask
+app = Flask(__name__)
+@app.route('/')
+def hello():
+    return 'Hello World!'
+from flask import Flask
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+@app.route('/')
+def hello():
+  return 'Hello World!'
+if __name__ == '__main__':
+  app.run()
+@app.route('/predict', methods=['POST'])
+def predict():
+    return 'Hello World!'
+from flask import Flask, jsonify
+app = Flask(__name__)
+@app.route('/predict', methods=['POST'])
+def predict():
+    return jsonify({'class_id': 'IMAGE_NET_XXX', 'class_name': 'Cat'})
+from flask import Flask, jsonify
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+@app.route('/predict', methods=['GET'])
+def predict():
+    return jsonify({'class_id': 'IMAGE_NET_XXX', 'class_name': 'Cat'})
+if __name__ == '__main__':
+  app.run()
+import io
+import torchvision.transforms as transforms
+from PIL import Image
+def transform_image(image_bytes):
+    my_transforms = transforms.Compose([transforms.Resize(255),
+                                        transforms.CenterCrop(224),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(
+                                            [0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])])
+    image = Image.open(io.BytesIO(image_bytes))
+    return my_transforms(image).unsqueeze(0)
+with open("../_static/img/sample_file.jpeg", 'rb') as f:
+    image_bytes = f.read()
+    tensor = transform_image(image_bytes=image_bytes)
+    print(tensor)
+from google.colab import files
+uploaded = files.upload()
+import cv2
+from google.colab.patches import cv2_imshow
+img  = cv2.imread("bobby.jpg")
+cv2_imshow(img)
+with open("bobby.jpg", 'rb') as f:
+    image_bytes = f.read()
+    tensor = transform_image(image_bytes=image_bytes)
+    print(tensor)
+from torchvision import models
+model = models.densenet121(pretrained=True)
+model.eval()
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    return y_hat
+import json
+imagenet_class_index = json.load(open('../_static/imagenet_class_index.json'))
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+uploaded = files.upload()
+import json
+imagenet_class_index = json.load(open('imagenet_class_index.json'))
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+with open("../_static/img/sample_file.jpeg", 'rb') as f:
+    image_bytes = f.read()
+    print(get_prediction(image_bytes=image_bytes))
+['n02124075', 'Egyptian_cat']
+with open("bobby.jpg", 'rb') as f:
+    image_bytes = f.read()
+    print(get_prediction(image_bytes=image_bytes))
+import io
+import json
+from torchvision import models
+import torchvision.transforms as transforms
+from PIL import Image
+from flask import Flask, jsonify, request
+from flask_ngrok import run_with_ngrok
+app = Flask(__name__)
+run_with_ngrok(app)
+imagenet_class_index = json.load(open('imagenet_class_index.json'))
+model = models.densenet121(pretrained=True)
+model.eval()
+def transform_image(image_bytes):
+    my_transforms = transforms.Compose([transforms.Resize(255),
+                                        transforms.CenterCrop(224),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(
+                                            [0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])])
+    image = Image.open(io.BytesIO(image_bytes))
+    return my_transforms(image).unsqueeze(0)
+def get_prediction(image_bytes):
+    tensor = transform_image(image_bytes=image_bytes)
+    outputs = model.forward(tensor)
+    _, y_hat = outputs.max(1)
+    predicted_idx = str(y_hat.item())
+    return imagenet_class_index[predicted_idx]
+@app.route('/predict', methods=['POST'])
+def predict():
+    if request.method == 'POST':
+        file = request.files['file']
+        img_bytes = file.read()
+        class_id, class_name = get_prediction(image_bytes=img_bytes)
+        return jsonify({'class_id': class_id, 'class_name': class_name})
+if __name__ == '__main__':
+    app.run()
+get_ipython().run_line_magic('matplotlib', 'inline')
+print(torch.__version__)
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+    def forward(self, x, h):
+        new_h = torch.tanh(x + h)
+        return new_h, new_h
+my_cell = MyCell()
+x = torch.rand(3, 4)
+h = torch.rand(3, 4)
+print(my_cell(x, h))
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.linear(x) + h)
+        return new_h, new_h
+my_cell = MyCell()
+print(my_cell)
+print(my_cell(x, h))
+class MyDecisionGate(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return x
+        else:
+            return -x
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.dg = MyDecisionGate()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.dg(self.linear(x)) + h)
+        return new_h, new_h
+my_cell = MyCell()
+print(my_cell)
+print(my_cell(x, h))
+class MyCell(torch.nn.Module):
+    def __init__(self):
+        super(MyCell, self).__init__()
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.linear(x) + h)
+        return new_h, new_h
+my_cell = MyCell()
+x, h = torch.rand(3, 4), torch.rand(3, 4)
+traced_cell = torch.jit.trace(my_cell, (x, h))
+print(traced_cell)
+traced_cell(x, h)
+print(traced_cell.graph)
+print(traced_cell.code)
+print(my_cell(x, h))
+print(traced_cell(x, h))
+class MyDecisionGate(torch.nn.Module):
+    def forward(self, x):
+        if x.sum() > 0:
+            return x
+        else:
+            return -x
+class MyCell(torch.nn.Module):
+    def __init__(self, dg):
+        super(MyCell, self).__init__()
+        self.dg = dg
+        self.linear = torch.nn.Linear(4, 4)
+    def forward(self, x, h):
+        new_h = torch.tanh(self.dg(self.linear(x)) + h)
+        return new_h, new_h
+my_cell = MyCell(MyDecisionGate())
+traced_cell = torch.jit.trace(my_cell, (x, h))
+print(traced_cell.code)
+scripted_gate = torch.jit.script(MyDecisionGate())
+my_cell = MyCell(scripted_gate)
+traced_cell = torch.jit.script(my_cell)
+print(traced_cell.code)
+print(scripted_gate.code)
+x, h = torch.rand(3, 4), torch.rand(3, 4)
+traced_cell(x, h)
+class MyRNNLoop(torch.nn.Module):
+    def __init__(self):
+        super(MyRNNLoop, self).__init__()
+        self.cell = torch.jit.trace(MyCell(scripted_gate), (x, h))
+    def forward(self, xs):
+        h, y = torch.zeros(3, 4), torch.zeros(3, 4)
+        for i in range(xs.size(0)):
+            y, h = self.cell(xs[i], h)
+        return y, h
+rnn_loop = torch.jit.script(MyRNNLoop())
+print(rnn_loop.code)
+class WrapRNN(torch.nn.Module):
+    def __init__(self):
+        super(WrapRNN, self).__init__()
+        self.loop = torch.jit.script(MyRNNLoop())
+    def forward(self, xs):
+        y, h = self.loop(xs)
+        return torch.relu(y)
+traced = torch.jit.trace(WrapRNN(), (torch.rand(10, 3, 4)))
+print(traced.code)
+traced.save('wrapped_rnn.zip')
+loaded = torch.jit.load('wrapped_rnn.zip')
+print(loaded)
+print(loaded.code)
+get_ipython().run_line_magic('matplotlib', 'inline')
+import torch
+import torchvision
+model = torchvision.models.resnet18()
+example = torch.rand(1, 3, 224, 224)
+traced_script_module = torch.jit.trace(model, example)
+output = traced_script_module(torch.ones(1, 3, 224, 224))
+output[0, :5]
+import torch
+class MyModule(torch.nn.Module):
+    def __init__(self, N, M):
+        super(MyModule, self).__init__()
+        self.weight = torch.nn.Parameter(torch.rand(N, M))
+    def forward(self, input):
+        if input.sum() > 0:
+          output = self.weight.mv(input)
+        else:
+          output = self.weight + input
+        return output
+class MyModule(torch.nn.Module):
+    def __init__(self, N, M):
+        super(MyModule, self).__init__()
+        self.weight = torch.nn.Parameter(torch.rand(N, M))
+    def forward(self, input):
+        if input.sum() > 0:
+          output = self.weight.mv(input)
+        else:
+          output = self.weight + input
+        return output
+my_module = MyModule(10,20)
+sm = torch.jit.script(my_module)
+traced_script_module.save("traced_resnet_model.pt")
+get_ipython().system('ls')

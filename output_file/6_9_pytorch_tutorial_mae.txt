@@ -1,0 +1,109 @@
+def run_worker(rank, world_size):
+    r"""
+    RPCを初期化するラッパー関数。
+    関数を呼び出し、RPCを停止します。
+    """
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '29500'
+    rpc_backend_options = TensorPipeRpcBackendOptions()
+    rpc_backend_options.init_method='tcp://localhost:29501'
+    if rank == 2:
+        rpc.init_rpc(
+                "master",
+                rank=rank,
+                world_size=world_size,
+                rpc_backend_options=rpc_backend_options)
+        emb_rref = rpc.remote(
+                "ps",
+                torch.nn.EmbeddingBag,
+                args=(NUM_EMBEDDINGS, EMBEDDING_DIM),
+                kwargs={"mode": "sum"})
+        futs = []
+        for trainer_rank in [0, 1]:
+            trainer_name = "trainer{}".format(trainer_rank)
+            fut = rpc.rpc_async(
+                    trainer_name, _run_trainer, args=(emb_rref, rank))
+            futs.append(fut)
+        for fut in futs:
+            fut.wait()
+    elif rank <= 1:
+        dist.init_process_group(
+                backend="gloo", rank=rank, world_size=2)
+        trainer_name = "trainer{}".format(rank)
+        rpc.init_rpc(
+                trainer_name,
+                rank=rank,
+                world_size=world_size,
+                rpc_backend_options=rpc_backend_options)
+    else:
+        rpc.init_rpc(
+                "ps",
+                rank=rank,
+                world_size=world_size,
+                rpc_backend_options=rpc_backend_options)
+        pass
+    rpc.shutdown()
+if __name__=="__main__":
+    world_size = 4
+    mp.spawn(run_worker, args=(world_size, ), nprocs=world_size, join=True)
+class HybridModel(torch.nn.Module):
+    """
+    モデルは、疎な部分と密な部分で構成されています。
+    密な部分は、分散データ並列を用いてすべてのトレーナー上に複製される nn.Linear モジュールです。
+    疎な部分は、パラメーターサーバー上に格納されている nn.EmbeddingBag です。
+    
+    モデルは、パラメーターサーバー上の埋め込みテーブルへのリモート参照を保持しています。
+    """
+    def __init__(self, emb_rref, device):
+        super(HybridModel, self).__init__()
+        self.emb_rref = emb_rref
+        self.fc = DDP(torch.nn.Linear(16, 8).cuda(device), device_ids=[device])
+        self.device = device
+    def forward(self, indices, offsets):
+        emb_lookup = self.emb_rref.rpc_sync().forward(indices, offsets)
+        return self.fc(emb_lookup.cuda(self.device))
+def _retrieve_embedding_parameters(emb_rref):
+    param_rrefs = []
+    for param in emb_rref.local_value().parameters():
+        param_rrefs.append(RRef(param))
+    return param_rrefs
+def _run_trainer(emb_rref, rank):
+    r"""
+    各トレーナーは、パラメーターサーバー上の埋め込みの参照と
+    ローカルでの nn.Linear の実行を含むフォワードパスを実行します。
+    バックワードパスの間は、DDPが密な部分（nn.Linear）の勾配の集約の役割を担い、
+    分散自動微分が、勾配の更新がパラメーターサーバーに伝播されるように担保しています。
+    """
+    model = HybridModel(emb_rref, rank)
+    model_parameter_rrefs = rpc.rpc_sync(
+            "ps", _retrieve_embedding_parameters, args=(emb_rref,))
+    for param in model.parameters():
+        model_parameter_rrefs.append(RRef(param))
+    opt = DistributedOptimizer(
+        optim.SGD,
+        model_parameter_rrefs,
+        lr=0.05,
+    )
+    criterion = torch.nn.CrossEntropyLoss()
+def get_next_batch(rank):
+    for _ in range(10):
+        num_indices = random.randint(20, 50)
+        indices = torch.LongTensor(num_indices).random_(0, NUM_EMBEDDINGS)
+        offsets = []
+        start = 0
+        batch_size = 0
+        while start < num_indices:
+            offsets.append(start)
+            start += random.randint(1, 10)
+            batch_size += 1
+        offsets_tensor = torch.LongTensor(offsets)
+        target = torch.LongTensor(batch_size).random_(8).cuda(rank)
+        yield indices, offsets_tensor, target
+for epoch in range(100):
+    for indices, offsets, target in get_next_batch(rank):
+        with dist_autograd.context() as context_id:
+            output = model(indices, offsets)
+            loss = criterion(output, target)
+            dist_autograd.backward(context_id, [loss])
+            opt.step(context_id)
+    print("Training done for epoch {}".format(epoch))

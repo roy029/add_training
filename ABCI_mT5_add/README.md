@@ -28,11 +28,14 @@ tgt = tokenizer.decode(dic["target_ids"].squeeze().tolist())
 inputs = {"input_ids":にゃにゃにゃ, "attention_mask":にゃにゃにゃ, "target_ids":にゃにゃにゃ}
 ```
 
-3.new_tokenizerとMT5Tokenizerを使い分けなければいけない??
+3. new_tokenizerとMT5Tokenizerを使い分けなければいけない??
 new_tokenizerを使うところ
-  文章をちぎってmaskのsrcとtgtのデータを作成するところ
+
+文章をちぎってmaskのsrcとtgtのデータを作成するところ
+
 MT5Tokenizerを使うところ
-  decode, encode, add_tokensなどTokenizerに備わっているフクザツなところ
+
+decode, encode, add_tokensなどTokenizerに備わっているフクザツなところ
 
 ## 実行方法
 つむさん作のABCIを参考に

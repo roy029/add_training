@@ -23,6 +23,12 @@ tokenizer.add_tokens(additional_special_tokens)
 ```
 python3 main_newtoken.py [使うデータ.tsv]
 ```
+以下の名前のディレクトリを作成
+- data
+- model
+- log
+- result
+
 
 # TODO
 - 一行のtsv(.txtが良い)で動くように改造

@@ -30,8 +30,10 @@ inputs = {"input_ids":にゃにゃにゃ, "attention_mask":にゃにゃにゃ, "
 
 3. new_tokenizerとMT5Tokenizerを使い分けなければいけない??
 - new_tokenizerを使うところ
+    
     文章をちぎってmaskのsrcとtgtのデータを作成するところ
 - MT5Tokenizerを使うところ
+
     decode, encode, add_tokensなどTokenizerに備わっているフクザツなところ
 
 ## 実行方法

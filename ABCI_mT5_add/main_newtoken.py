@@ -95,9 +95,9 @@ class TsvDataset(Dataset): #FIXME
         
         self.input_max_len = input_max_len
         self.target_max_len = target_max_len
-        self.tokenizer = tokenizer
-        self.inputs = []
-        self.targets = []
+        self.tokenizer = tokenizer #MT5Tokenizer
+        self.inputs = [] #もしやinputs["input_ids"]を作ってる
+        self.targets = [] #これはinputs["target_ids"]できるのでゴミ
         
         self._build()
   
@@ -117,33 +117,61 @@ class TsvDataset(Dataset): #FIXME
     def _make_record(self, src, tgt):
         input = f"{src}"
         target = f"{tgt}"
-        return input, target
+        return input, target #tsv_writer.writerow([src, tgt])みたいな
   
-    def _build(self):
+    def _build(self): #改造済み
+        new_tokenizer = mask_new.masked(self.tokenizer)
         with open(self.file_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip().split("\t")
-                assert len(line[0]) > 0
-                assert len(line[1]) > 0
-
-                tgt = line[0]
-                src = line[1]
+                line = "".join(line) #リストをstrに
+                dic = new_tokenizer(line) #new_tokenizer
+                src = self.tokenizer.decode(dic["input_ids"].squeeze().tolist()) #MT5Tokenizer
+                if len(dic) != 1: #targetがなくペアにならない文章は書き込みをしない
+                    tgt = self.tokenizer.decode(dic["target_ids"].squeeze().tolist()) #MT5Tokenizer
 
                 input, target = self._make_record(src, tgt)
     #ここでtokenizerしてる
-                tokenized_inputs = self.tokenizer.batch_encode_plus(
-                    [input], max_length=self.input_max_len, truncation=True, 
-                    padding="max_length", return_tensors="pt"
-                )
+                #FIXME:何に使うか分からないのでとりまコメントアウト
 
-                tokenized_targets = self.tokenizer.batch_encode_plus(
-                    [target], max_length=self.target_max_len, truncation=True, 
-                    padding="max_length", return_tensors="pt"
-                )
+                # tokenized_inputs = self.tokenizer.batch_encode_plus(
+                #     [input], max_length=self.input_max_len, truncation=True, 
+                #     padding="max_length", return_tensors="pt"
+                # )
 
-                self.inputs.append(tokenized_inputs)
-                self.targets.append(tokenized_targets)
+                # tokenized_targets = self.tokenizer.batch_encode_plus(
+                #     [target], max_length=self.target_max_len, truncation=True, 
+                #     padding="max_length", return_tensors="pt"
+                # )
 
+                # self.inputs.append(tokenized_inputs)
+                # self.targets.append(tokenized_targets)
+
+    # def _build(self): #オリジナル
+    #     with open(self.file_path, "r", encoding="utf-8") as f:
+    #         for line in f:
+    #             line = line.strip().split("\t")
+    #             assert len(line[0]) > 0
+    #             assert len(line[1]) > 0
+
+    #             s = line
+    #             tgt = line[0]
+    #             src = line[1]
+
+    #             input, target = self._make_record(src, tgt)
+    # #ここでtokenizerしてる
+    #             tokenized_inputs = self.tokenizer.batch_encode_plus(
+    #                 [input], max_length=self.input_max_len, truncation=True, 
+    #                 padding="max_length", return_tensors="pt"
+    #             )
+
+    #             tokenized_targets = self.tokenizer.batch_encode_plus(
+    #                 [target], max_length=self.target_max_len, truncation=True, 
+    #                 padding="max_length", return_tensors="pt"
+    #             )
+
+    #             self.inputs.append(tokenized_inputs)
+    #             self.targets.append(tokenized_targets)
 
 class MT5FineTuner(pl.LightningModule):
     def __init__(self, 
@@ -178,7 +206,7 @@ class MT5FineTuner(pl.LightningModule):
 
         # トークナイザーの読み込み
         self.tokenizer = MT5Tokenizer.from_pretrained(self.hparams.tokenizer_name_or_path, is_fast=True)
-        self.tokenizer.add_tokens(additional_special_tokens)
+        self.tokenizer.add_tokens(additional_special_tokens) #MT5Tokenizer
 
     def forward(self, input_ids, attention_mask=None, decoder_input_ids=None, 
                 decoder_attention_mask=None, labels=None):
@@ -265,9 +293,10 @@ class MT5FineTuner(pl.LightningModule):
         return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
 
     def get_dataset(self, tokenizer, type_path, args):
-        """データセットを作成する"""
+        """データセットを作成する""" #mask_new.new_tokenizerの出番
         return TsvDataset(
-            tokenizer=tokenizer, 
+            tokenizer=tokenizer,
+            new_tokenizer = mask_new.masked(tokenizer)
             data_dir=args.data_dir, 
             type_path=type_path, 
             input_max_len=args.max_input_length,
@@ -323,7 +352,8 @@ if __name__ == '__main__':
 
     # トークナイザー（SentencePiece）モデルの読み込み
     tokenizer = MT5Tokenizer.from_pretrained(PRETRAINED_MODEL_NAME, is_fast=True)
-    new_tokenizer = mask_new.masked(tokenizer)
+    # new_tokenizer = mask_new.masked(tokenizer) #new_tokenizerとして分けておく
+    # tokenizer = new_tokenizer
     tokenizer.add_tokens(additional_special_tokens)
 
     # テストデータセットの読み込み
@@ -358,7 +388,6 @@ if __name__ == '__main__':
 
     # 学習済みモデル
     trained_model = MT5ForConditionalGeneration.from_pretrained(MODEL_DIR)
-    tokenizer = new_tokenizer
 
     # GPUの利用有無
     USE_GPU = torch.cuda.is_available()

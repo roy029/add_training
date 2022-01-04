@@ -17,6 +17,16 @@ tokenizer.add_tokens(additional_special_tokens)
 
 2. データについて
 データが2列のtgt,srcで与えるのを想定しているのに対して、mask_new.pyが同じ文字列からsrcとtgtを交互に出力するものを使いたい
+```
+def masked(tokenizer):
+  def new_tokenizer(sentence):
+    return inputs
+  return new_tokenizer
+~mask.pyより~
+src = tokenizer.decode(dic["input_ids"].squeeze().tolist())
+tgt = tokenizer.decode(dic["target_ids"].squeeze().tolist())
+inputs = {"input_ids":にゃにゃにゃ, "attention_mask":にゃにゃにゃ, "target_ids":にゃにゃにゃ}
+```
 
 ## 実行方法
 つむさん作のABCIを参考に

@@ -21,11 +21,11 @@ tokenizer.add_tokens(additional_special_tokens)
 ## 実行方法
 つむさん作のABCIを参考に
 ```
-python3 main_newtoken.py [使うデータ.txt]
+python3 main_newtoken.py [使うデータ.tsv]
 ```
 
 # TODO
-- 一行のtsvで動くように改造
+- 一行のtsv(.txtが良い)で動くように改造
 - トレーニングに使うデータをテキスト形式からtsvに変更する
 
 

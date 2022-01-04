@@ -2,9 +2,11 @@
 
 main.pyを参考に新しいnew_tokenizerを置いて書き換えようとしている。
 
-<書き換えで苦戦しているところ>
+## 書き換えで苦戦している箇所
+
 "add_training/ABCI_mT5_add/mask_new.py"の内容
-Xmasバージョンのnew_tokenizerを返してくれる関数
+
+-->Xmasバージョンのnew_tokenizerを返してくれる関数
 
 mask_new.pyをimportして、tokenizer定義した後に付け足す
 ```

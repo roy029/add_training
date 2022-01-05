@@ -2,6 +2,9 @@
 
 main.pyを参考に新しいnew_tokenizerを置いて書き換えようとしている。
 
+# mask_T5.pyができました(未検証)
+
+
 ## 書き換えで苦戦している箇所
 
 "add_training/ABCI_mT5_add/mask_new.py"の内容 --> Xmasバージョンのnew_tokenizerを返してくれる関数

@@ -53,6 +53,14 @@ python3 main_newtoken.py [使うデータ.tsv]
 - log
 - result
 
+順に実行
+```
+module load python/3.6/3.6.5
+module load cuda/10.0/10.0.130.1
+pip3 install --user --upgrade pip
+pip3 install -r requirements.txt
+```
+
 
 # TODO
 - 一行のtsv(.txtが良い)で動くように改造

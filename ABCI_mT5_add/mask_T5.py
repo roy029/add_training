@@ -83,6 +83,9 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+EOS = 1
+ID = 250099
+
 def masking_pad(input_ids, masked, max_length=128):
     c = 0
     prev_index = None
@@ -258,7 +261,7 @@ class MT5FineTuner(pl.LightningModule):
 
     def get_dataset(self, tokenizer, type_path, args):
         """データセットを作成する"""
-        return TsvDataset(
+        return MaskedDataset(
             tokenizer=tokenizer, 
             data_dir=args.data_dir, 
             type_path=type_path, 
@@ -318,7 +321,7 @@ if __name__ == '__main__':
     tokenizer.add_tokens(additional_special_tokens)
 
     # テストデータセットの読み込み
-    test_dataset = TsvDataset(tokenizer, DATA_DIR, "test.tsv", 
+    test_dataset = MaskedDataset(tokenizer, DATA_DIR, "test.tsv", 
                             input_max_len=128, target_max_len=128)
 
     train_params = dict(
@@ -363,7 +366,7 @@ if __name__ == '__main__':
             params += p.numel()
 
     # テストデータの読み込み
-    test_dataset = TsvDataset(tokenizer, DATA_DIR, "test.tsv", 
+    test_dataset = MaskedDataset(tokenizer, DATA_DIR, "test.tsv", 
                             input_max_len=128, 
                             target_max_len=128)
 

@@ -57,6 +57,22 @@ INPUT_tsv = args.input_file
 # GPU利用有無
 USE_GPU = torch.cuda.is_available()
 
+def masking(input_ids, masked):
+    EOS = 1
+    ID = 250099
+    c = 0
+    prev_index = None
+    for index in masked:
+        if prev_index == index - 1:
+            input_ids[index] = None
+        else:
+            input_ids[index] = ID - c
+            c += 1
+        prev_index = index
+    return [ids for ids in input_ids if ids != None] + [EOS]
+
+
+
 def from_tsv(f_path):
   df = pd.read_table(f_path, header=None, sep='\t') #tgt-srcのペア文章.tsv --> 1行の文章
 
@@ -103,75 +119,68 @@ class TsvDataset(Dataset): #FIXME
   
     def __len__(self):
         return len(self.inputs)
-  
-    def __getitem__(self, index):
-        source_ids = self.inputs[index]["input_ids"].squeeze()
-        target_ids = self.targets[index]["input_ids"].squeeze()
 
-        source_mask = self.inputs[index]["attention_mask"].squeeze()
-        target_mask = self.targets[index]["attention_mask"].squeeze()
+    def __getitem__(self, index): #これはどこに作用しているのか
+        source_ids = self.inputs[index].squeeze().tolist() #こんな[[250099, 157781, 423, 162427, 145080, 250098, 1252, 306, 1]]
+        target_ids = self.targets[index].squeeze().tolist()
+
+        source_mask = self.inputs[index]["attention_mask"].squeeze().tolist()
+        target_mask = self.targets[index]["attention_mask"].squeeze().tolist()#ここは直す...
+
+        source_mask = self.inputs[index].new_ones(1, len(source)) #FIXME:sourceをどこから持ってくるか...input_idsとかぶるので両方とも名前をつかなければ
+        target_mask = self.targets[index].new_ones(1, len(source))
 
         return {"source_ids": source_ids, "source_mask": source_mask, 
                 "target_ids": target_ids, "target_mask": target_mask}
+
+  
+    # def __getitem__(self, index): #オリジナル
+    #     source_ids = self.inputs[index]["input_ids"].squeeze()
+    #     target_ids = self.targets[index]["input_ids"].squeeze()
+
+    #     source_mask = self.inputs[index]["attention_mask"].squeeze()
+    #     target_mask = self.targets[index]["attention_mask"].squeeze()
+
+    #     return {"source_ids": source_ids, "source_mask": source_mask, 
+    #             "target_ids": target_ids, "target_mask": target_mask}
 
     def _make_record(self, src, tgt):
         input = f"{src}"
         target = f"{tgt}"
         return input, target #tsv_writer.writerow([src, tgt])みたいな
-  
-    def _build(self): #改造済み
+
+    def _build(self): #read_txtに改造済み
         new_tokenizer = mask_new.masked(self.tokenizer)
         with open(self.file_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip().split("\t")
                 line = "".join(line) #リストをstrに
                 dic = new_tokenizer(line) #new_tokenizer
+
                 src = self.tokenizer.decode(dic["input_ids"].squeeze().tolist()) #MT5Tokenizer
                 if len(dic) != 1: #targetがなくペアにならない文章は書き込みをしない
                     tgt = self.tokenizer.decode(dic["target_ids"].squeeze().tolist()) #MT5Tokenizer
 
-                input, target = self._make_record(src, tgt)
-    #ここでtokenizerしてる
+                input, target = self._make_record(src, tgt) #ただのデータ にほんご並列コーパス
+    
                 #FIXME:何に使うか分からないのでとりまコメントアウト
-
+                #言語モデルに入れる形
+                
+                tokenized_inputs = dic["input_ids"]
                 # tokenized_inputs = self.tokenizer.batch_encode_plus(
                 #     [input], max_length=self.input_max_len, truncation=True, 
                 #     padding="max_length", return_tensors="pt"
                 # )
 
+                tokenized_targets = dic["target_ids"]
                 # tokenized_targets = self.tokenizer.batch_encode_plus(
                 #     [target], max_length=self.target_max_len, truncation=True, 
                 #     padding="max_length", return_tensors="pt"
                 # )
 
-                # self.inputs.append(tokenized_inputs)
-                # self.targets.append(tokenized_targets)
+                self.inputs.append(tokenized_inputs)
+                self.targets.append(tokenized_targets)
 
-    # def _build(self): #オリジナル
-    #     with open(self.file_path, "r", encoding="utf-8") as f:
-    #         for line in f:
-    #             line = line.strip().split("\t")
-    #             assert len(line[0]) > 0
-    #             assert len(line[1]) > 0
-
-    #             s = line
-    #             tgt = line[0]
-    #             src = line[1]
-
-    #             input, target = self._make_record(src, tgt)
-    # #ここでtokenizerしてる
-    #             tokenized_inputs = self.tokenizer.batch_encode_plus(
-    #                 [input], max_length=self.input_max_len, truncation=True, 
-    #                 padding="max_length", return_tensors="pt"
-    #             )
-
-    #             tokenized_targets = self.tokenizer.batch_encode_plus(
-    #                 [target], max_length=self.target_max_len, truncation=True, 
-    #                 padding="max_length", return_tensors="pt"
-    #             )
-
-    #             self.inputs.append(tokenized_inputs)
-    #             self.targets.append(tokenized_targets)
 
 class MT5FineTuner(pl.LightningModule):
     def __init__(self, 
@@ -296,7 +305,6 @@ class MT5FineTuner(pl.LightningModule):
         """データセットを作成する""" #mask_new.new_tokenizerの出番
         return TsvDataset(
             tokenizer=tokenizer,
-            new_tokenizer = mask_new.masked(tokenizer)
             data_dir=args.data_dir, 
             type_path=type_path, 
             input_max_len=args.max_input_length,
@@ -436,7 +444,7 @@ if __name__ == '__main__':
                     for ids in batch["target_ids"]]
         source = [tokenizer.decode(ids, skip_special_tokens=True, 
                                 clean_up_tokenization_spaces=False) 
-                    for ids in batch["source_ids"]]
+                    for ids in batch["source_ids"]] #tokenizer.decode(dic["input_ids"].squeeze().tolist())と同じ
 
         outputs.extend(dec)
         targets.extend(target)

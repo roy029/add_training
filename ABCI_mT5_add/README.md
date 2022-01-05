@@ -3,7 +3,10 @@
 main.pyを参考に新しいnew_tokenizerを置いて書き換えようとしている。
 
 # mask_T5.pyができました(未検証)
-
+ローカル --> リモート にデータを移動させたい
+```
+scp /Users/t_kajiura/Git/add_training/output_13.txt abci:acd13734km
+```
 
 ## 書き換えで苦戦している箇所
 

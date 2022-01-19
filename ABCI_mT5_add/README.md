@@ -1,5 +1,17 @@
 # ABCI_mT5
 
+バッチスクリプトを実行するときにターミナルで実行する
+2倍早くなる??
+```
+$ git clone https://github.com/NVIDIA/apex
+$ cd apex
+$ pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+もしくは
+pip install -v --no-cache-dir ./
+```
+
+
+
 main.pyを参考に新しいnew_tokenizerを置いて書き換えようとしている。
 
 # mask_T5.pyができました(未検証)

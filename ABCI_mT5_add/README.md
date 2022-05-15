@@ -19,6 +19,10 @@ main.pyを参考に新しいnew_tokenizerを置いて書き換えようとして
 ```
 scp /Users/t_kajiura/Git/add_training/output_13.txt abci:acd13734km
 ```
+リモート --> ローカル
+```
+scp abci:result.zip .
+```
 
 ## 書き換えで苦戦している箇所
 
